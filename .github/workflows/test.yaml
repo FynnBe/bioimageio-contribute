@@ -8,12 +8,12 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      resource_id: steps.set_outputs.outputs.resource_id
-      version: steps.get_version.outputs.version
+      resource_id: steps.check.outputs.resource_id
+      version: steps.check.outputs.version
 
     steps:
     - shell: python
-      id: set_outputs
+      id: check
       run: |
         import os
 
@@ -29,6 +29,7 @@ jobs:
           f.write(f"version={version}")
 
   validate_format:
+    needs: setup
     runs-on: ubuntu-latest
     outputs:
       dynamic_test_cases: ${{ steps.validate_format.outputs.dynamic_test_cases }}
@@ -41,12 +42,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip" # caching pip dependencies
-      - run: pip install git+https://github.com/bioimage-io/collection.git@main
+      - run: pip install git+https://github.com/bioimage-io/core-bioimage-io-python.git@main
       - id: validate_format
-        run: backoffice validate_format bioimageio.yaml
+        run: bioimageio validate-format bioimageio.yaml
 
   test:
-    needs: [setup, validate_format]
+    needs: validate_format
     if: needs.validate_format.outputs.has_dynamic_test_cases == 'yes'
     runs-on: ubuntu-latest
     strategy:
@@ -80,11 +81,11 @@ jobs:
         timeout-minutes: 60
       - name: dynamic validation
         shell: bash -l {0}
-        run: backoffice test bioimageio.yaml "${{ matrix.weight_format }}" "${{ steps.create_env.outcome }}"
+        run: bioimageio test bioimageio.yaml "${{ matrix.weight_format }}" "${{ steps.create_env.outcome }}"
         timeout-minutes: 60
 
   # conclude:
-  #   needs: [validate_format, test]
+  #   needs: [setup, validate_format, test]
   #   if: always()
   #   runs-on: ubuntu-latest
   #   steps:
