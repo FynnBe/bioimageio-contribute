@@ -44,7 +44,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip" # caching pip dependencies
+          # cache: "pip" # caching pip dependencies
       - run: pip install git+https://github.com/bioimage-io/core-bioimage-io-python.git@main
       - id: validate_format
         run: bioimageio validate-format bioimageio.yaml
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip" # caching pip dependencies
+          # cache: "pip" # caching pip dependencies
       - run: pip install ruyaml
       - name: save conda_env_${{ matrix.weight_format }}.yaml
         run: |
