@@ -1,0 +1,91 @@
+name: test
+
+on:
+  workflow_call
+
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      resource_id: steps.set_outputs.outputs.resource_id
+      version: steps.get_version.outputs.version
+
+    steps:
+    - shell: python
+      id: set_outputs
+      run: |
+        version = "${{github.ref_name}}"
+        assert version
+        resource_id = "${{github.repository}}".split("/")[1].replace("bioimageio-", "")
+        with open(os.environ["GITHUB_ENV"], "a") as f:
+          f.write(f"resource_id={resource_id}")
+          f.write(f"version={version}")
+
+  validate_format:
+    runs-on: ubuntu-latest
+    outputs:
+      dynamic_test_cases: ${{ steps.validate_format.outputs.dynamic_test_cases }}
+      has_dynamic_test_cases: ${{ steps.validate_format.outputs.has_dynamic_test_cases }}
+      conda_envs: ${{ steps.validate_format.outputs.conda_envs }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip" # caching pip dependencies
+      - run: pip install git+https://github.com/bioimage-io/collection.git@main
+      - id: validate_format
+        run: backoffice validate_format bioimageio.yaml
+
+  test:
+    needs: [setup, validate_format]
+    if: needs.validate_format.outputs.has_dynamic_test_cases == 'yes'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.validate_format.outputs.dynamic_test_cases) }} # include: [{weight_format: ...}, ...]
+      max-parallel: 1 # avoid prallel updates to log.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip" # caching pip dependencies
+      - run: pip install ruyaml
+      - name: save conda_env_${{ matrix.weight_format }}.yaml
+        run: |
+          import json
+          from pathlib import Path
+          from ruyaml import YAML
+          yaml = YAML(typ="safe")
+          conda_env = json.loads('${{ needs.validate_format.outputs.conda_envs }}')["${{ matrix.weight_format }}"]
+          yaml.dump(conda_env, Path("conda_env_${{ matrix.weight_format }}.yaml"))
+        shell: python
+      - name: install validation dependencies
+        id: create_env
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          cache-downloads: true
+          environment-name: ${{ matrix.weight_format }}
+          environment-file: conda_env_${{ matrix.weight_format }}.yaml
+        continue-on-error: true # we inspect this step's outcome in run_dynamic_tests.py
+        timeout-minutes: 60
+      - name: dynamic validation
+        shell: bash -l {0}
+        run: backoffice test bioimageio.yaml "${{ matrix.weight_format }}" "${{ steps.create_env.outcome }}"
+        timeout-minutes: 60
+
+  # conclude:
+  #   needs: [validate_format, test]
+  #   if: always()
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.12"
+  #         cache: "pip" # caching pip dependencies
+  #     - run: pip install git+https://github.com/bioimage-io/collection.git@main
+  #     - run: backoffice await_review "${{ needs.setup.outputs.resource_id }}" "${{ needs.setup.outputs.version }}"
